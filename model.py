@@ -1,4 +1,5 @@
 import math
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -10,8 +11,22 @@ class RNNModel(nn.Module):
     Container module with an encoder, a recurrent module, and a decoder.
     """
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5,
-                 tie_weights=False):
+    def __init__(self, rnn_type: str, ntoken: int, ninp: int, nhid: int,
+                 nlayers: int, dropout: float = 0.5,
+                 tie_weights: bool = False):
+        """
+        Constructor for an RNNModel.
+
+        :param rnn_type: The RNN architecture: LSTM, GRU, RNN_TANH, or
+            RNN_RELU
+        :param ntoken: The vocab size
+        :param ninp: The embedding size
+        :param nhid: The hidden size
+        :param nlayers: The number of RNN layers
+        :param dropout: The dropout weight
+        :param tie_weights: Whether to tie the input and output
+            embeddings
+        """
         super(RNNModel, self).__init__()
         self.ntoken = ntoken
         self.drop = nn.Dropout(dropout)
@@ -30,17 +45,17 @@ class RNNModel(nn.Module):
             self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity="relu",
                               dropout=dropout)
         else:
-            raise ValueError("""An invalid option for `--model` was supplied. 
-            Options are "LSTM", "GRU", "RNN_TANH", or "RNN_RELU".""")
+            raise ValueError("The value of --model must be LSTM, GRU,"
+                             "RNN_TANH, or RNN_RELU, not {}.".format(rnn_type))
 
         # Optionally tie weights as in Press and Wolf (2016). See the
         # paper for more details: https://arxiv.org/abs/1608.05859
         if tie_weights and nhid == ninp:
             self.decoder.weight = self.encoder.weight
         elif tie_weights:
-            raise ValueError("""When using the tied flag, nhid must be equal 
-            to 
-            emsize.""")
+            raise ValueError("When using --tied, --nhid must be equal to "
+                             "--emsize. Currently, --nhid is {} and --emsize"
+                             "is {}.".format(nhid, ninp))
 
         self.init_weights()
         self.rnn_type = rnn_type
@@ -48,26 +63,37 @@ class RNNModel(nn.Module):
         self.nlayers = nlayers
 
     def init_weights(self):
-        initrange = 0.1
-        nn.init.uniform_(self.encoder.weight, -initrange, initrange)
-        nn.init.zeros_(self.decoder.weight)
-        nn.init.uniform_(self.decoder.weight, -initrange, initrange)
+        nn.init.xavier_uniform_(self.encoder.weight)
+        nn.init.xavier_uniform_(self.decoder.weight)
 
-    def forward(self, input, hidden):
+    def forward(self, input: torch.Tensor, hidden: torch.Tensor) -> \
+            Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass.
+
+        :param input: An input batch
+        :param hidden: The hidden state from the previous batch
+        :return: The output and the hidden state
+        """
         emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output)
-        decoded = decoded.view(-1, self.ntoken)
-        return F.log_softmax(decoded, dim=1), hidden
+        return self.decoder(output), hidden
 
-    def init_hidden(self, bsz):
+    def init_hidden(self, batch_size: int):
+        """
+        Constructs a zero vector that serves as the initial hidden state
+        of the RNN.
+
+        :param batch_size: The batch size
+        :return: The initial hidden state
+        """
         weight = next(self.parameters())
-        if self.rnn_type == 'LSTM':
-            return (weight.new_zeros(self.nlayers, bsz, self.nhid),
-                    weight.new_zeros(self.nlayers, bsz, self.nhid))
+        if isinstance(self.rnn, nn.LSTM):
+            return (weight.new_zeros(self.nlayers, batch_size, self.nhid),
+                    weight.new_zeros(self.nlayers, batch_size, self.nhid))
         else:
-            return weight.new_zeros(self.nlayers, bsz, self.nhid)
+            return weight.new_zeros(self.nlayers, batch_size, self.nhid)
 
 
 # Temporarily leave PositionalEncoding module here. Will be moved somewhere
