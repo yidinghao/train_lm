@@ -1,3 +1,6 @@
+"""
+Training script.
+"""
 import math
 import time
 from typing import Iterable, Union
@@ -124,8 +127,9 @@ def evaluate(model: Model, eval_iter: tt.Iterator, criterion: nn.Module) -> \
 
 
 def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
-                   cuda: bool = False, dropout: float = .2, emsize: int = 200,
-                   epochs: int = 40, log_interval: int = 200, lr: float = .2,
+                   device: torch.device = torch.device("cpu"),
+                   dropout: float = .2, emsize: int = 200, epochs: int = 40,
+                   log_interval: int = 200, lr: float = .2,
                    model: str = "LSTM", nhead: int = 2, nhid: int = 200,
                    nlayers: int = 2, patience: int = 5, save: str = "model.pt",
                    test_iter: tt.Iterator = None, tied: bool = False,
@@ -137,7 +141,7 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
     :param batch_size: The batch size
     :param bptt: The maximum sequence length
     :param clip: Gradient clipping
-    :param cuda: Whether to use CUDA
+    :param device: CPU or CUDA
     :param dropout: The dropout rate
     :param emsize: The embedding size
     :param epochs: The maximum number of epochs
@@ -155,9 +159,6 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
     :param val_iter: Validation set iterator
     :return: None
     """
-    device = torch.device("cuda" if cuda else "cpu")
-
-    # Load data
     if train_iter is None or val_iter is None or test_iter is None:
         print("At least one iterator is missing. Loading WikiText2.")
         train_iter, val_iter, test_iter = load_data("WikiText2", device,
@@ -227,5 +228,6 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
 
 
 if __name__ == "__main__":
-    run_experiment(cuda=True, emsize=200, nhid=200, tied=False, lr=20,
-                   batch_size=128, log_interval=200)
+    # Test the code
+    run_experiment(emsize=200, nhid=200, tied=False, lr=20, batch_size=128,
+                   log_interval=200)
