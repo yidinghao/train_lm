@@ -6,8 +6,8 @@ import torch
 import torchtext.data as tt
 from torch import nn
 from torch import optim
-from torchtext.datasets import WikiText2
 
+from data import load_data
 from model import RNNModel, TransformerModel
 
 HiddenState = Union[torch.Tensor, Iterable[torch.Tensor]]
@@ -31,7 +31,10 @@ def repackage_hidden(h: HiddenState) -> HiddenState:
 
 
 def perplexity(avg_loss: float) -> Union[float, str]:
-    return math.exp(avg_loss) if avg_loss > 0. else "N/A"
+    try:
+        return math.exp(avg_loss)
+    except:
+        return -999
 
 
 def train(model: Model, train_iter: tt.Iterator, epoch: int,
@@ -84,6 +87,7 @@ def train(model: Model, train_iter: tt.Iterator, epoch: int,
                             perplexity(cur_loss)))
             total_loss = 0
             n_preds = 0
+
             start_time = time.time()
 
 
@@ -123,8 +127,10 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
                    cuda: bool = False, dropout: float = .2, emsize: int = 200,
                    epochs: int = 40, log_interval: int = 200, lr: float = .2,
                    model: str = "LSTM", nhead: int = 2, nhid: int = 200,
-                   nlayers: int = 2, save: str = "model.pt", tied: bool =
-                   False):
+                   nlayers: int = 2, patience: int = 5, save: str = "model.pt",
+                   test_iter: tt.Iterator = None, tied: bool = False,
+                   train_iter: tt.Iterator = None,
+                   val_iter: tt.Iterator = None) -> float:
     """
     Trains a language model.
     
@@ -135,31 +141,30 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
     :param dropout: The dropout rate
     :param emsize: The embedding size
     :param epochs: The maximum number of epochs
-
+    :param log_interval: The frequency of printing to the terminal
     :param lr: The initial learning rate for Adam
     :param model: The model architecture
     :param nhead: The number of attention heads (for Transformer)
     :param nhid: The hidden size
     :param nlayers: The number of RNN/Transformer layers
+    :param patience: The early stopping patience
     :param save: The path to save the model to
+    :param test_iter: Testing set iterator
     :param tied: Whether to tie weights
+    :param train_iter: Training set iterator
+    :param val_iter: Validation set iterator
     :return: None
     """
     device = torch.device("cuda" if cuda else "cpu")
 
     # Load data
-    text_field = tt.Field()
-    train_data, valid_data, test_data = WikiText2.splits(text_field)
-    text_field.build_vocab(train_data)
-
-    kwargs = dict(device=device, repeat=False)
-    train_iter = tt.BPTTIterator(train_data, batch_size, bptt,
-                                 **kwargs)
-    val_iter = tt.BPTTIterator(valid_data, 10, bptt, **kwargs)
-    test_iter = tt.BPTTIterator(test_data, 10, bptt, **kwargs)
+    if train_iter is None or val_iter is None or test_iter is None:
+        print("At least one iterator is missing. Loading WikiText2.")
+        train_iter, val_iter, test_iter = load_data("WikiText2", device,
+                                                    batch_size, bptt)
 
     # Build the model
-    ntokens = len(text_field.vocab)
+    ntokens = len(train_iter.dataset.fields["text"].vocab)
     if model == "Transformer":
         model = TransformerModel(ntokens, emsize, nhead, nhid,
                                  nlayers, dropout).to(device)
@@ -171,27 +176,40 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
 
     # Epoch loop
     best_val_loss = None
+    early_stopping_ctr = 0
+    optimizer = optim.SGD(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.5,
+                                                     patience=0, verbose=True)
     for epoch in range(1, epochs + 1):
         epoch_start_time = time.time()
 
         # Train and validate
-        optimizer = optim.Adam(model.parameters(), lr=lr)
         train(model, train_iter, epoch, criterion, optimizer, clip,
               log_interval)
         val_loss = evaluate(model, val_iter, criterion)
 
         # Report validation loss
         epoch_time = time.time() - epoch_start_time
-        print("_" * 89)
-        print("| End of Epoch {:3d} ({:5.2f} s)\tValidation PPL: {:8.2f}"
+
+        print("_" * 69)
+        print("End of Epoch {:3d} ({:5.2f} s)\tValidation PPL: {:8.2f}"
               "".format(epoch, epoch_time, perplexity(val_loss)))
-        print("‾" * 89)
+
+        scheduler.step(val_loss)
 
         # Save the model if the validation loss is the best we've seen so far
-        if not best_val_loss or val_loss < best_val_loss:
+        if best_val_loss is None or val_loss < best_val_loss:
+            early_stopping_ctr = 0
             with open(save, "wb") as f:
                 torch.save(model, f)
             best_val_loss = val_loss
+        else:
+            early_stopping_ctr += 1
+            print("Early Stopping: {}/{}".format(early_stopping_ctr, patience))
+            if early_stopping_ctr >= patience:
+                break
+
+        print("‾" * 69)
 
     # Load the best model
     with open(save, "rb") as f:
@@ -201,10 +219,13 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
 
     # Run on test data
     test_loss = evaluate(model, test_iter, criterion)
-    print("_" * 89)
-    print("| End of Training\tTest PPL: {:8.2f}".format(perplexity(test_loss)))
-    print("‾" * 89)
+    ppl = perplexity(test_loss)
+    print("_" * 69)
+    print("End of Training\t\tTest PPL: {:8.2f}".format(ppl))
+    print("‾" * 69)
+    return ppl
 
 
 if __name__ == "__main__":
-    run_experiment(cuda=False)
+    run_experiment(cuda=True, emsize=200, nhid=200, tied=False, lr=20,
+                   batch_size=128, log_interval=200)
