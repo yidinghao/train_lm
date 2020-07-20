@@ -10,7 +10,6 @@ import torchtext.data as tt
 from torch import nn
 from torch import optim
 
-from data import load_data
 from model import RNNModel, TransformerModel
 
 HiddenState = Union[torch.Tensor, Iterable[torch.Tensor]]
@@ -126,7 +125,7 @@ def evaluate(model: Model, eval_iter: tt.Iterator, criterion: nn.Module) -> \
     return total_loss / n_preds
 
 
-def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
+def run_experiment(clip: float = .25,
                    device: torch.device = torch.device("cpu"),
                    dropout: float = .2, emsize: int = 200, epochs: int = 40,
                    log_interval: int = 200, lr: float = .2,
@@ -137,9 +136,7 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
                    val_iter: tt.Iterator = None) -> float:
     """
     Trains a language model.
-    
-    :param batch_size: The batch size
-    :param bptt: The maximum sequence length
+
     :param clip: Gradient clipping
     :param device: CPU or CUDA
     :param dropout: The dropout rate
@@ -159,10 +156,8 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
     :param val_iter: Validation set iterator
     :return: None
     """
-    if train_iter is None or val_iter is None or test_iter is None:
-        print("At least one iterator is missing. Loading WikiText2.")
-        train_iter, val_iter, test_iter = load_data("WikiText2", device,
-                                                    batch_size, bptt)
+    assert train_iter is not None and val_iter is not None and \
+           test_iter is not None
 
     # Build the model
     ntokens = len(train_iter.dataset.fields["text"].vocab)
@@ -201,8 +196,7 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
         # Save the model if the validation loss is the best we've seen so far
         if best_val_loss is None or val_loss < best_val_loss:
             early_stopping_ctr = 0
-            with open(save, "wb") as f:
-                torch.save(model, f)
+            torch.save(model.state_dict(), save)
             best_val_loss = val_loss
         else:
             early_stopping_ctr += 1
@@ -213,8 +207,7 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
         print("‾" * 69)
 
     # Load the best model
-    with open(save, "rb") as f:
-        model = torch.load(f)
+    model.load_state_dict(torch.load(save))
     if isinstance(model, RNNModel):
         model.rnn.flatten_parameters()
 
@@ -229,5 +222,4 @@ def run_experiment(batch_size: int = 20, bptt: int = 35, clip: float = .25,
 
 if __name__ == "__main__":
     # Test the code
-    run_experiment(emsize=200, nhid=200, tied=False, lr=20, batch_size=128,
-                   log_interval=200)
+    run_experiment(emsize=200, nhid=200, tied=False, lr=20)

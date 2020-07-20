@@ -5,6 +5,7 @@ import argparse
 import random
 
 import torch
+from torchtext import data as tt
 
 from data import load_data
 from train import run_experiment
@@ -60,11 +61,19 @@ del kwargs["seed"]
 
 # Load data
 device = torch.device("cuda" if kwargs["cuda"] else "cpu")
-train_iter, val_iter, test_iter = load_data(kwargs["data"], device,
-                                            kwargs["batch_size"],
-                                            kwargs["bptt"])
+train_data, val_data, test_data = load_data(kwargs["data"], device)
+
+train_iter = tt.BPTTIterator(train_data, kwargs["batch_size"], kwargs["bptt"],
+                             device=device, repeat=False)
+val_iter = tt.BPTTIterator(val_data, 10, kwargs["bptt"], device=device,
+                           repeat=False)
+test_iter = tt.BPTTIterator(test_data, 10, kwargs["bptt"], device=device,
+                            repeat=False)
+
 del kwargs["data"]
 del kwargs["cuda"]
+del kwargs["batch_size"]
+del kwargs["bptt"]
 
 run_experiment(device=device, train_iter=train_iter, val_iter=val_iter,
                test_iter=test_iter, **kwargs)

@@ -5,9 +5,8 @@ from torchtext import data as tt
 from torchtext.datasets import WikiText2, WikiText103, PennTreebank
 
 
-def load_data(dataset_name: str, device: torch.device, batch_size: int,
-              bptt: int) -> \
-        Tuple[tt.Iterator, ...]:
+def load_data(dataset_name: str, device: torch.device) -> \
+        Tuple[tt.Dataset, ...]:
     """
     Loads a dataset based on its name.
 
@@ -28,12 +27,4 @@ def load_data(dataset_name: str, device: torch.device, batch_size: int,
         raise ValueError("{} is not a valid dataset.".format(dataset_name))
 
     text_field.build_vocab(train_data)
-
-    train_iter = tt.BPTTIterator(train_data, batch_size, bptt,
-                                 device=device, repeat=False)
-    val_iter = tt.BPTTIterator(valid_data, 10, bptt, device=device,
-                               repeat=False)
-    test_iter = tt.BPTTIterator(test_data, 10, bptt, device=device,
-                                repeat=False)
-
-    return train_iter, val_iter, test_iter
+    return train_data, valid_data, test_data
